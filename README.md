@@ -1,0 +1,1 @@
+Hệ thống phát hiện tấn công API bằng LightGBM. Mục tiêu ban đầu: binary classification (normal / attack) tập trung phát hiện BOLA, Broken Authentication, Lack of Rate Limiting, Broken Function Auth, Injection.
