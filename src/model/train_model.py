@@ -48,7 +48,7 @@ def train():
     
     # Khởi tạo thuật toán LightGBM Classifier
     model = lgb.LGBMClassifier(
-        n_estimators=200,          # Số lượng cây (càng nhiều càng học kỹ nhưng dễ quá mức)
+        n_estimators=200,          # Số lượng cây
         learning_rate=0.05,        # Tốc độ học
         max_depth=8,               # Độ sâu của cây
         random_state=42,

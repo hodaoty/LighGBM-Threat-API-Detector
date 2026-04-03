@@ -10,7 +10,6 @@ def build_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     """
     print("Đang trích xuất đặc trưng (Feature Engineering)...")
     
-    # Tạo bản sao để tránh cảnh báo SettingWithCopyWarning của Pandas
     df = df.copy()
 
     # --- 1. Path Features (Bắt Injection) ---
