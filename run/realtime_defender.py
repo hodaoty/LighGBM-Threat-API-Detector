@@ -27,8 +27,8 @@ ES_URL = "http://127.0.0.1:9200"
 INDEX_NAME = "mlops-api-logs-*"
 
 # Tự động trỏ đường dẫn tới file pkl nằm trong thư mục /models của dự án
+#MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "production", "active_model.pkl")
 MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "lightgbm_threatAPI_detector.pkl")
-
 # Tần suất quét (Ví dụ: 5 giây quét 1 lần)
 POLLING_INTERVAL_SEC = 5
 # Cửa sổ thời gian lùi lại để tính toán tính năng Rolling (30 giây cho an toàn)
@@ -149,13 +149,13 @@ def run_realtime_defender():
                 if score >= 0.85:
                     attack_count += 1
                     labels.append(1)
-                    print(Fore.RED + Style.BRIGHT + f"[HIGH] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path}")
+                    print(Fore.RED + Style.BRIGHT + f"[HIGH] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path} | request_id: {req_id}")
                 elif score >= 0.5:
                     labels.append(0)
-                    print(Fore.YELLOW + f"[MEDIUM] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path}")
+                    print(Fore.YELLOW + f"[MEDIUM] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path} | request_id: {req_id}")
                 else:
                     labels.append(0)
-                    print(Fore.BLUE + f"[LOW] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path}")
+                    print(Fore.BLUE + f"[LOW] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path} | request_id: {req_id}")
 
             # Gắn trực tiếp mảng nhãn 0/1 vào DataFrame
             df_new['label'] = labels
