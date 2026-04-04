@@ -27,8 +27,8 @@ ES_URL = "http://127.0.0.1:9200"
 INDEX_NAME = "mlops-api-logs-*"
 
 # Tự động trỏ đường dẫn tới file pkl nằm trong thư mục /models của dự án
-#MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "production", "active_model.pkl")
-MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "lightgbm_threatAPI_detector.pkl")
+MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "production", "active_model.pkl")
+#MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "lightgbm_threatAPI_detector.pkl")
 # Tần suất quét (Ví dụ: 5 giây quét 1 lần)
 POLLING_INTERVAL_SEC = 5
 # Cửa sổ thời gian lùi lại để tính toán tính năng Rolling (30 giây cho an toàn)
