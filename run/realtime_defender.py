@@ -3,36 +3,48 @@ import joblib
 import time
 import os
 import sys
+import requests
+import hashlib
 from datetime import datetime, timedelta, timezone
 from elasticsearch import Elasticsearch
 from colorama import init, Fore, Style
 
-# Khởi tạo màu sắc cho Terminal
+# Initialize terminal colors
 init(autoreset=True)
 
 # ==========================================
-# CẤU HÌNH ĐƯỜNG DẪN MÔI TRƯỜNG
+# ENVIRONMENT PATH CONFIGURATION
 # ==========================================
-# Script nằm trong thư mục /run. Ta lùi lại 1 cấp (..) để ra thư mục gốc
+# Script is located in /src/models. Go back one level to the project root.
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(PROJECT_ROOT) 
 
-# Import module từ thư mục /src (Sau khi đã thêm PROJECT_ROOT vào path)
+# Import module from /src (After appending PROJECT_ROOT to path)
 from src.features.common_features import build_features
 
 # ==========================================
-# CẤU HÌNH HỆ THỐNG
+# SYSTEM & ELASTICSEARCH CONFIGURATION
 # ==========================================
 ES_URL = "http://127.0.0.1:9200"
 INDEX_NAME = "mlops-api-logs-*"
 
-# Tự động trỏ đường dẫn tới file pkl nằm trong thư mục /models của dự án
+# Path to the active .pkl model file in the production directory
 MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "production", "active_model.pkl")
-#MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "lightgbm_threatAPI_detector.pkl")
-# Tần suất quét (Ví dụ: 5 giây quét 1 lần)
+
+# Polling interval (e.g., scan every 5 seconds)
 POLLING_INTERVAL_SEC = 5
-# Cửa sổ thời gian lùi lại để tính toán tính năng Rolling (30 giây cho an toàn)
+# Time window for rolling features (e.g., 0.5 minutes for safety margin)
 CONTEXT_WINDOW_MINUTES = 0.5
+
+# ==========================================
+# FIREWALL ADMIN COMMUNICATION CONFIGURATION
+# ==========================================
+FIREWALL_API_URL = "http://127.0.0.1:9000/api/autoban"
+FW_ADMIN_USER = "admin"
+FW_ADMIN_PASS = "admin123"
+
+# Calculate session token for Firewall Admin authentication
+FW_AUTH_TOKEN = hashlib.sha256(f"{FW_ADMIN_USER}:{FW_ADMIN_PASS}_secure_firewall".encode()).hexdigest()
 
 def connect_elasticsearch():
     try:
@@ -43,41 +55,61 @@ def connect_elasticsearch():
                      "Content-Type": "application/vnd.elasticsearch+json; compatible-with=8"}
         )
         if es.info():
-            print(Fore.GREEN + "Đã kết nối thành công tới Elasticsearch!")
+            print(Fore.GREEN + "Successfully connected to Elasticsearch!")
             return es
     except Exception as e:
-        print(Fore.RED + f"Lỗi kết nối ES: {e}")
+        print(Fore.RED + f"Elasticsearch connection error: {e}")
         sys.exit(1)
 
 def load_ai_model():
     if not os.path.exists(MODEL_PATH):
-        print(Fore.RED + f"Không tìm thấy Model tại {MODEL_PATH}")
+        print(Fore.RED + f"Model not found at {MODEL_PATH}")
         sys.exit(1)
     model = joblib.load(MODEL_PATH)
-    print(Fore.GREEN + f"Đã tải thành công 'Bộ não' LightGBM!")
+    print(Fore.GREEN + "LightGBM model loaded successfully!")
     return model
+
+def trigger_firewall_ban(ip):
+    """Call Firewall Admin API to auto-ban IP"""
+    if ip == "172.20.0.10": ip = "172.20.0.1"
+    try:
+        response = requests.post(
+            FIREWALL_API_URL,
+            json={"ip": ip},
+            cookies={"session": FW_AUTH_TOKEN},
+            timeout=2
+        )
+        if response.status_code == 200:
+            print(Fore.MAGENTA + Style.BRIGHT + f"   -> [FIREWALL] Automatically blocked IP {ip} in Auto-ban list!")
+        else:
+            print(Fore.YELLOW + f"   -> [FIREWALL] Error blocking IP {ip}. Status: {response.status_code}")
+    except Exception as e:
+        print(Fore.YELLOW + f"   -> [FIREWALL] Cannot connect to Firewall Admin: {e}")
 
 def run_realtime_defender():
     print(Fore.CYAN + Style.BRIGHT + "="*60)
-    print(Fore.CYAN + Style.BRIGHT + "HỆ THỐNG API THREAT DEFENDER ĐANG HOẠT ĐỘNG (PHASE 2)...")
+    print(Fore.CYAN + Style.BRIGHT + "API THREAT DEFENDER & AUTO-RESPONSE SYSTEM IS RUNNING...")
     print(Fore.CYAN + Style.BRIGHT + "="*60)
 
     es = connect_elasticsearch()
     model = load_ai_model()
     
-    # Tập hợp lưu trữ các request_id đã được quét để không cảnh báo trùng lặp
+    # Set to store processed request_ids to avoid duplicate alerts
     processed_request_ids = set()
+    
+    # Cache for recently banned IPs to avoid spamming the Firewall API
+    recently_banned_ips = set()
 
     while True:
         try:
-            # 1. Xác định khung thời gian truy vấn
+            # 1. Define query time frame
             now_utc = datetime.now(timezone.utc)
             start_time = now_utc - timedelta(minutes=CONTEXT_WINDOW_MINUTES)
             
             start_time_str = start_time.strftime('%Y-%m-%dT%H:%M:%S.000Z')
             end_time_str = now_utc.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
-            # Câu truy vấn lấy log trong khung thời gian
+            # Query to fetch logs within the time frame
             query = {
                 "query": {
                     "range": {
@@ -88,53 +120,53 @@ def run_realtime_defender():
                     }
                 },
                 "sort": [{"@timestamp": {"order": "asc"}}],
-                "size": 5000 # Giới hạn lấy 5000 log gần nhất
+                "size": 5000 # Limit to 5000 recent logs
             }
 
             response = es.search(index=INDEX_NAME, body=query)
             hits = response['hits']['hits']
 
             if len(hits) == 0:
-                print(Fore.YELLOW + f"[{now_utc.strftime('%H:%M:%S')}] Không có traffic mới...")
+                print(Fore.YELLOW + f"[{now_utc.strftime('%H:%M:%S')}] No new traffic...")
                 time.sleep(POLLING_INTERVAL_SEC)
                 continue
 
-            # 2. Chuyển đổi dữ liệu ES thành DataFrame
+            # 2. Convert ES data to DataFrame
             raw_logs = [hit['_source'] for hit in hits]
             df = pd.DataFrame(raw_logs)
 
-            # Xóa log trùng lặp
+            # Remove duplicate logs
             df = df.drop_duplicates(subset=['request_id'], keep='last')
 
-            # Lọc ra NHỮNG DÒNG LOG MỚI TINH
+            # Filter out NEW LOGS only
             new_logs_mask = ~df['request_id'].isin(processed_request_ids)
             if not new_logs_mask.any():
                 time.sleep(POLLING_INTERVAL_SEC)
                 continue
 
-            # 3. Trích xuất Đặc trưng
+            # 3. Feature Extraction
             try:
                 X, _ = build_features(df)
             except Exception as e:
-                print(Fore.RED + f"Lỗi Feature Engineering: {e}")
+                print(Fore.RED + f"Feature Engineering error: {e}")
                 time.sleep(POLLING_INTERVAL_SEC)
                 continue
 
-            # Lấy vector đặc trưng mới. Dùng .copy() để tránh cảnh báo SettingWithCopyWarning
+            # Get new feature vectors. Use .copy() to avoid SettingWithCopyWarning
             X_new = X[new_logs_mask]
             df_new = df[new_logs_mask].copy() 
 
             # =========================================================
-            # 4. AI CHẤM ĐIỂM (PROBABILITY SCORING)
+            # 4. AI PROBABILITY SCORING
             # =========================================================
-            # Lấy mảng xác suất dự đoán là Tấn công (cột index 1)
+            # Get attack probability array (column index 1)
             probabilities = model.predict_proba(X_new)[:, 1]
 
             labels = []
             attack_count = 0
 
             # =========================================================
-            # 5. PHÂN LOẠI, GẮN NHÃN VÀ XUẤT FILE CSV
+            # 5. CLASSIFICATION, AUTO-BAN AND CSV EXPORT
             # =========================================================
             for i in range(len(probabilities)):
                 score = probabilities[i]
@@ -145,11 +177,17 @@ def run_realtime_defender():
                 
                 processed_request_ids.add(req_id)
                 
-                # Logic gán Label theo mức độ rủi ro (Risk Score)
+                # Label assignment logic based on Risk Score
                 if score >= 0.85:
                     attack_count += 1
                     labels.append(1)
                     print(Fore.RED + Style.BRIGHT + f"[HIGH] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path} | request_id: {req_id}")
+                    
+                    # --- COMMAND FIREWALL TO BAN IP ---
+                    if ip not in recently_banned_ips and ip != "Unknown IP":
+                        trigger_firewall_ban(ip)
+                        recently_banned_ips.add(ip)
+                        
                 elif score >= 0.5:
                     labels.append(0)
                     print(Fore.YELLOW + f"[MEDIUM] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path} | request_id: {req_id}")
@@ -157,11 +195,11 @@ def run_realtime_defender():
                     labels.append(0)
                     print(Fore.BLUE + f"[LOW] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path} | request_id: {req_id}")
 
-            # Gắn trực tiếp mảng nhãn 0/1 vào DataFrame
+            # Attach 0/1 labels to DataFrame
             df_new['label'] = labels
             
             # ---------------------------------------------------------
-            # CHUẨN HÓA DATAFRAME TRƯỚC KHI XUẤT CSV (GIẢI QUYẾT ĐỊNH DẠNG)
+            # NORMALIZE DATAFRAME BEFORE CSV EXPORT (FORMAT RESOLUTION)
             # ---------------------------------------------------------
             TARGET_COLUMNS = [
                 "@timestamp", "auth_token_hash", "method", "path", "path_normalized",
@@ -170,12 +208,12 @@ def run_realtime_defender():
                 "user_role", "waf_action", "waf_rule_id", "label"
             ]
 
-            # 1. Đảm bảo có đủ cột (nếu Elasticsearch thiếu thì điền rỗng)
+            # 1. Ensure all columns exist (fill empty if ES is missing any)
             for col in TARGET_COLUMNS:
                 if col not in df_new.columns:
                     df_new[col] = ""
 
-            # 2. Xử lý giá trị rỗng
+            # 2. Handle empty values
             df_new['waf_action'] = df_new['waf_action'].replace('', '0').fillna('0')
             df_new['waf_rule_id'] = df_new['waf_rule_id'].replace('', '0').fillna('0')
             df_new['sampling_flag'] = df_new['sampling_flag'].replace('', '0').fillna('0')
@@ -183,39 +221,43 @@ def run_realtime_defender():
             df_new['auth_token_hash'] = df_new['auth_token_hash'].replace('', '(empty)').fillna('(empty)')
             df_new['user_id_hash'] = df_new['user_id_hash'].replace('', '(empty)').fillna('(empty)')
 
-            # 3. Ép kiểu số thực (Float)
+            # 3. Cast to Float
             df_new['response_size'] = pd.to_numeric(df_new['response_size'], errors='coerce').fillna(0).astype(float)
             df_new['response_time_ms'] = pd.to_numeric(df_new['response_time_ms'], errors='coerce').fillna(0).astype(float)
 
-            # 4. Định dạng lại thời gian
+            # 4. Reformat timestamp
             df_new['@timestamp'] = pd.to_datetime(df_new['@timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S+00:00')
 
-            # 5. Lọc bỏ các cột rác và sắp xếp đúng thứ tự yêu cầu
+            # 5. Filter out junk columns and sort by required order
             df_export = df_new[TARGET_COLUMNS]
             
             # ---------------------------------------------------------
-            # Cấu hình lưu file CSV hàng ngày
+            # Daily CSV file configuration
             today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
             daily_log_dir = os.path.join(PROJECT_ROOT, "data", "daily_logs")
             os.makedirs(daily_log_dir, exist_ok=True)
             
             daily_csv_path = os.path.join(daily_log_dir, f"log_{today_str}.csv")
             
-            # Nếu file chưa tồn tại thì ghi Header, nếu có rồi thì ghi tiếp (append mode)
+            # Write Header if file doesn't exist, otherwise append
             header_needed = not os.path.exists(daily_csv_path)
             df_export.to_csv(daily_csv_path, mode='a', index=False, header=header_needed)
 
-            # Xóa bớt cache ID để tránh tràn RAM
+            # Clear ID cache to prevent RAM overflow
             if len(processed_request_ids) > 10000:
                 processed_request_ids = set(list(processed_request_ids)[-5000:])
+                
+            # Clear banned IP cache to free memory
+            if len(recently_banned_ips) > 1000:
+                recently_banned_ips.clear()
 
             if attack_count == 0:
-                print(Fore.GREEN + f"[{now_utc.strftime('%H:%M:%S')}] Đã quét {len(df_new)} reqs. Đã lưu log vào file ngày {today_str} (An toàn).")
+                print(Fore.GREEN + f"[{now_utc.strftime('%H:%M:%S')}] Scanned {len(df_new)} reqs. Logs saved to {today_str} file (Safe).")
             else:
-                print(Fore.RED + f"[{now_utc.strftime('%H:%M:%S')}] Đã quét {len(df_new)} reqs. Cảnh báo: {attack_count} truy cập rủi ro cao!")
+                print(Fore.RED + f"[{now_utc.strftime('%H:%M:%S')}] Scanned {len(df_new)} reqs. Warning: {attack_count} high-risk requests processed!")
 
         except Exception as e:
-            print(Fore.RED + f"Lỗi hệ thống trong lúc quét: {e}")
+            print(Fore.RED + f"System error during scan: {e}")
         
         time.sleep(POLLING_INTERVAL_SEC)
 
