@@ -3,3 +3,5 @@
 [2026-04-03 15:42:22] [DEPLOY] Replaced by model_2026-04-03_15-18-08.pkl (New: 0.8901 vs Old: 0.8901)
 [2026-04-04 02:49:14] Model: model_2026-04-04_02-48-14.pkl | F1: 0.9679 | AUC: 0.9928
 [2026-04-04 02:50:09] [DEPLOY] Replaced by model_2026-04-04_02-48-14.pkl (New: 0.9679 vs Old: 0.8901)
+[2026-04-05 13:51:47] Model: model_2026-04-05_13-49-55.pkl | F1: 0.8868 | AUC: 0.9757
+[2026-04-05 13:54:17] [ROLLBACK] Rejected model_2026-04-05_13-49-55.pkl (New: 0.8868 < Old: 0.9679) - Data Restored
