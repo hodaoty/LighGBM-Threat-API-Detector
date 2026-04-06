@@ -35,6 +35,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # Kibana Discover URL template updated with the user's specific index and layout
+# SỬA LỖI: Đổi 'localhost' thành '127.0.0.1' để Telegram API không chặn URL
 KIBANA_URL_TEMPLATE = "http://127.0.0.1:5601/app/discover#/?_g=(filters:!(),refreshInterval:(pause:!t,value:60000),time:(from:now-30d%2Fd,to:now))&_a=(columns:!(),filters:!(),index:bcb4c7e3-e358-4578-ac1f-0364892a565a,interval:auto,query:(language:kuery,query:'request_id%20:%20{req_id}'),sort:!(!('@timestamp',desc)))"
 
 # ==========================================
@@ -95,7 +96,7 @@ def trigger_firewall_ban(ip, req_id):
     except Exception as e:
         print(Fore.YELLOW + f"   -> [FIREWALL] Cannot connect to Firewall Admin: {e}")
 
-def send_email_alert(ip, req_id, score):
+def send_email_alert(ip, req_id, score, risk_level="HIGH"):
     """Send an email alert to the admin via Gmail SMTP"""
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
         return
@@ -103,19 +104,24 @@ def send_email_alert(ip, req_id, score):
     try:
         msg = MIMEMultipart()
         msg['From'] = GMAIL_USER
-        msg['To'] = GMAIL_USER  # Send alert to self
-        msg['Subject'] = f"[URGENT] API Threat Detected - IP Banned: {ip}"
+        msg['To'] = GMAIL_USER  
+        msg['Subject'] = f"[{risk_level} RISK] API Threat Detected: {ip}"
         
+        if risk_level == "HIGH":
+            action_text = "Added to Auto-ban list."
+        else:
+            action_text = "System HAS NOT blocked this IP. Admin review required."
+            
         body = f"""
 SECURITY ALERT - SYSTEM AUTOMATED RESPONSE
 
-The AI model has detected a high-risk attack and automatically banned the IP address.
+The AI model has detected a {risk_level} risk attack.
 
 Incident Details:
 - IP Address: {ip}
 - Threat Score: {score:.4f}
 - Request ID: {req_id}
-- Action Taken: Added to DDoS Auto-ban list
+- Action Taken: {action_text}
 
 Please review the Kibana dashboard for detailed traffic analysis.
         """
@@ -131,7 +137,7 @@ Please review the Kibana dashboard for detailed traffic analysis.
     except Exception as e:
         print(Fore.YELLOW + f"   -> [EMAIL] Failed to send alert: {e}")
 
-def send_telegram_alert(ip, req_id, score):
+def send_telegram_alert(ip, req_id, score, risk_level="HIGH"):
     """Send a Telegram alert with interactive inline keyboard"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
@@ -139,25 +145,28 @@ def send_telegram_alert(ip, req_id, score):
     try:
         kibana_url = KIBANA_URL_TEMPLATE.replace("{req_id}", str(req_id))
         
+        if risk_level == "HIGH":
+            action_taken = "IP Auto-banned"
+            buttons = [
+                [{"text": "View on Kibana", "url": kibana_url}],
+                [{"text": "False Positive (Unblock)", "callback_data": f"unblock|{ip}|{req_id}"}]
+            ]
+        else:
+            action_taken = "Pending Admin Review"
+            buttons = [
+                [{"text": "View on Kibana", "url": kibana_url}],
+                [{"text": "True Positive (Block IP)", "callback_data": f"block|{ip}|{req_id}"}]
+            ]
+            
         text = (
-            "*[URGENT] AI SECURITY ALERT*\n\n"
-            f"*Action Taken:* IP Auto-banned\n"
+            f"*[{risk_level} RISK] AI SECURITY ALERT*\n\n"
+            f"*Action:* `{action_taken}`\n"
             f"*Source IP:* `{ip}`\n"
             f"*Threat Score:* `{score:.4f}`\n"
             f"*Request ID:* `{req_id}`"
         )
         
-        # Define Inline Keyboard
-        reply_markup = {
-            "inline_keyboard": [
-                [
-                    {"text": "View on Kibana", "url": kibana_url}
-                ],
-                [
-                    {"text": "False Positive (Unblock)", "callback_data": f"unblock|{ip}|{req_id}"}
-                ]
-            ]
-        }
+        reply_markup = {"inline_keyboard": buttons}
         
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
@@ -172,7 +181,6 @@ def send_telegram_alert(ip, req_id, score):
             print(Fore.CYAN + "   -> [TELEGRAM] Interactive alert sent successfully.")
         else:
             print(Fore.YELLOW + f"   -> [TELEGRAM] Failed to send alert. Status: {response.status_code}")
-            # SỬA: In ra câu trả lời chi tiết của Telegram để biết chính xác lỗi gì
             print(Fore.YELLOW + f"   -> [TELEGRAM] Detail: {response.text}")
     except Exception as e:
         print(Fore.YELLOW + f"   -> [TELEGRAM] Error: {e}")
@@ -253,15 +261,25 @@ def run_realtime_defender():
                     if ip not in recently_banned_ips and ip != "Unknown IP":
                         trigger_firewall_ban(ip, req_id)
                         
-                        # --- SEND NOTIFICATIONS ---
-                        send_email_alert(ip, req_id, score)
-                        send_telegram_alert(ip, req_id, score)
+                        # --- SEND NOTIFICATIONS (HIGH) ---
+                        send_email_alert(ip, req_id, score, "HIGH")
+                        send_telegram_alert(ip, req_id, score, "HIGH")
                         
                         recently_banned_ips.add(ip)
                         
                 elif score >= 0.5:
-                    labels.append(0)
+                    labels.append(0) # Giữ nguyên label 0 vì chưa chắc chắn
                     print(Fore.YELLOW + f"[MEDIUM] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path} | request_id: {req_id}")
+                    
+                    # --- SEND NOTIFICATIONS (MEDIUM) ---
+                    # Không gọi trigger_firewall_ban, chỉ gửi cảnh báo chờ duyệt
+                    if ip not in recently_banned_ips and ip != "Unknown IP":
+                        send_email_alert(ip, req_id, score, "MEDIUM")
+                        send_telegram_alert(ip, req_id, score, "MEDIUM")
+                        
+                        # Thêm vào danh sách tạm để không spam tin nhắn liên tục
+                        #recently_banned_ips.add(ip)
+                        
                 else:
                     labels.append(0)
                     print(Fore.BLUE + f"[LOW] Score: {score:.2f} | IP: {ip:<15} | Method: {method:<4} | Path: {path} | request_id: {req_id}")
