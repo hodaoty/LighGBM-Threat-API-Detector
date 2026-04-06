@@ -35,7 +35,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # Kibana Discover URL template updated with the user's specific index and layout
-KIBANA_URL_TEMPLATE = "http://localhost:5601/app/discover#/?_g=(filters:!(),refreshInterval:(pause:!t,value:60000),time:(from:now-30d%2Fd,to:now))&_a=(columns:!(),filters:!(),index:bcb4c7e3-e358-4578-ac1f-0364892a565a,interval:auto,query:(language:kuery,query:'request_id%20:%20{req_id}'),sort:!(!('@timestamp',desc)))"
+KIBANA_URL_TEMPLATE = "http://127.0.0.1:5601/app/discover#/?_g=(filters:!(),refreshInterval:(pause:!t,value:60000),time:(from:now-30d%2Fd,to:now))&_a=(columns:!(),filters:!(),index:bcb4c7e3-e358-4578-ac1f-0364892a565a,interval:auto,query:(language:kuery,query:'request_id%20:%20{req_id}'),sort:!(!('@timestamp',desc)))"
 
 # ==========================================
 # SYSTEM & ELASTICSEARCH CONFIGURATION
@@ -172,6 +172,8 @@ def send_telegram_alert(ip, req_id, score):
             print(Fore.CYAN + "   -> [TELEGRAM] Interactive alert sent successfully.")
         else:
             print(Fore.YELLOW + f"   -> [TELEGRAM] Failed to send alert. Status: {response.status_code}")
+            # SỬA: In ra câu trả lời chi tiết của Telegram để biết chính xác lỗi gì
+            print(Fore.YELLOW + f"   -> [TELEGRAM] Detail: {response.text}")
     except Exception as e:
         print(Fore.YELLOW + f"   -> [TELEGRAM] Error: {e}")
 
