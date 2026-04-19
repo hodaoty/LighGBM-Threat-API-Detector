@@ -43,7 +43,8 @@ KIBANA_URL_TEMPLATE = "http://127.0.0.1:5601/app/discover#/?_g=(filters:!(),refr
 # ==========================================
 ES_URL = "http://127.0.0.1:9200"
 INDEX_NAME = "mlops-api-logs-*"
-MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "production", "active_model.pkl")
+#MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "production", "active_model.pkl")
+MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "lightgbm_threatAPI_detector.pkl")
 
 POLLING_INTERVAL_SEC = 5
 CONTEXT_WINDOW_MINUTES = 0.5
