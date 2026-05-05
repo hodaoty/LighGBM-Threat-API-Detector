@@ -4,11 +4,11 @@ import numpy as np
 
 def build_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     """
-    Sinh đặc trưng chung cho tất cả loại tấn công (Injection, Rate Limiting, BOLA, BFLA).
-    Input: DataFrame đã cleaned với schema chuẩn.
-    Output: DataFrame với các cột feature sẵn sàng cho training & Cột Label.
+    (Injection, Rate Limiting, BOLA, BFLA).
+    Input: DataFrame cleaned
+    Output: DataFrame with feature for training & Label column 
     """
-    print("Đang trích xuất đặc trưng (Feature Engineering)...")
+    print("(Feature Engineering)...")
     
     df = df.copy()
 
